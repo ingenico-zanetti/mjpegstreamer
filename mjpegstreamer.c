@@ -124,10 +124,10 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 				}
 				// Move current "tag" to start of buffer
 				// by moving nothing
-				printf("flushed %d, reset index to 4" "\n", lengthToFlush);
+				// printf("flushed %d, reset index to 4" "\n", lengthToFlush);
 				context->outputBufferIndex = 4;
 			}else{
-				printf("nothing to flush" "\n");
+				// printf("nothing to flush" "\n");
 			}
 		}
 	}
