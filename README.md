@@ -1,2 +1,2 @@
 # mjpegstreamer
-streams MJPEG output from libcamera-vid to multiple network client, starting the stream at a frame start for each client
+Streams MJPEG output from libcamera-vid to multiple network clients, starting the stream at a frame start for each client
