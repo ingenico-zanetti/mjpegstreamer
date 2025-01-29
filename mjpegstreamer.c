@@ -1,7 +1,7 @@
 // data come from stdin
-// they are parsed to get the h264 frames
+// they are parsed to get the JPEG frames
 // and when a TCP connection occurs
-// the TCP client is feed with data starting at a GOP beginning
+// the TCP client is feed with data starting at a frame beginning
 //
 
 #include <unistd.h>
@@ -91,32 +91,28 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 	const uint8_t *p = buffer;
 	while(i--){
 		int doFlush = 0;
-		int newGOP = 0;
 		uint8_t octet = *p++;
-		if((context->index < 3) && (0 == octet)){
+		if((0 == context->index) && (0xFF == octet)){
 			context->index++;
-		}else if((context->index == 3) && (1 == octet)){
+		}else if((1 == context->index) && (0xD8 == octet)){
 			context->index++;
-		}else if(context->index == 4){
-			// printf("0x00000001%02X found" "\n", octet);
+		}else if((2 == context->index) && (0xFF == octet)){
+			context->index++;
+		}else if((3 == context->index) && (0xE0 == octet)){
+			// printf("0xFFD8FFE0" "\n", octet);
 			context->index = 0;
-			if(0x67 == octet){
-				newGOP = 1;
-			}
 			doFlush = 1;
 		}else{
 			context->index = 0;
 		}
 		context->outputBuffer[context->outputBufferIndex++] = octet;
 		if(doFlush){
-			ssize_t lengthToFlush = context->outputBufferIndex - 5;
+			ssize_t lengthToFlush = context->outputBufferIndex - 4;
 			if(lengthToFlush > 0){
 				int i = MAX_OUTPUTS;
 				while(i--){
 					if(context->outputs[i].fd != -1){
-						if(newGOP && (OUTPUT_STATE_IDLE == context->outputs[i].state)){
-							context->outputs[i].state = OUTPUT_STATE_RUNNING;
-						}
+						context->outputs[i].state = OUTPUT_STATE_RUNNING;
 						if(OUTPUT_STATE_RUNNING == context->outputs[i].state){
 							if(lengthToFlush != write(context->outputs[i].fd, context->outputBuffer, lengthToFlush)){
 								context->outputs[i].state = OUTPUT_STATE_IDLE;
@@ -128,9 +124,8 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 				}
 				// Move current "tag" to start of buffer
 				// by moving nothing
-				// printf("flushed %d, reset index to 5" "\n", lengthToFlush);
-				context->outputBufferIndex = 5;
-				context->outputBuffer[4] = octet;
+				printf("flushed %d, reset index to 4" "\n", lengthToFlush);
+				context->outputBufferIndex = 4;
 			}else{
 				printf("nothing to flush" "\n");
 			}
@@ -186,7 +181,7 @@ int main(int argc, const char *argv[]){
 					int index  = contextFirstSlotAvailable(&context);
 					context.outputs[index].state = OUTPUT_STATE_IDLE;
 					context.outputs[index].fd = accept(listeningSocket, NULL, NULL);
-					printf("accepted connexion to slot %d)" "\n", index);
+					printf("accepted connexion to slot %d (fd=%d)" "\n", index, context.outputs[index].fd);
 				}
 				if(FD_ISSET(STDIN_FILENO, &fds)){
 					// printf("data available on stdin" "\n");
