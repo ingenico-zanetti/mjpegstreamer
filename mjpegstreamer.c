@@ -44,7 +44,7 @@ int listenSocket(struct in_addr *address, unsigned short port){
 	return listen_socket;
 }
 
-#define BUFFER_SIZE (1 * 1000 * 1000)
+#define BUFFER_SIZE (60 * 1000 * 1000)
 #define MAX_OUTPUTS (16)
 
 typedef enum {
@@ -106,6 +106,12 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 			context->index = 0;
 		}
 		context->outputBuffer[context->outputBufferIndex++] = octet;
+		if(context->outputBufferIndex >= BUFFER_SIZE){
+			// the picture doesn't fit into our buffer
+			printf("discard buffer (index=%d)" "\n", context->outputBufferIndex = 0); 
+			context->outputBufferIndex = 0;
+			context->index = 0;
+		}
 		if(doFlush){
 			ssize_t lengthToFlush = context->outputBufferIndex - 4;
 			if(lengthToFlush > 0){
@@ -115,6 +121,7 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 						context->outputs[i].state = OUTPUT_STATE_RUNNING;
 						if(OUTPUT_STATE_RUNNING == context->outputs[i].state){
 							if(lengthToFlush != write(context->outputs[i].fd, context->outputBuffer, lengthToFlush)){
+								printf("slot %d add an error, closing fd %d" "\n", i, context->outputs[i].fd);
 								context->outputs[i].state = OUTPUT_STATE_IDLE;
 								close(context->outputs[i].fd);
 								context->outputs[i].fd  = -1;
