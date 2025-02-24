@@ -105,9 +105,10 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 		}else{
 			context->index = 0;
 		}
-		context->outputBuffer[context->outputBufferIndex++] = octet;
-		if(context->outputBufferIndex >= BUFFER_SIZE){
-			// the picture doesn't fit into our buffer
+		if(context->outputBufferIndex < BUFFER_SIZE){
+			context->outputBuffer[context->outputBufferIndex++] = octet;
+		}else{
+			// the 'picture' doesn't fit into our buffer
 			printf("discard buffer (index=%d)" "\n", context->outputBufferIndex = 0); 
 			context->outputBufferIndex = 0;
 			context->index = 0;
@@ -121,7 +122,7 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 						context->outputs[i].state = OUTPUT_STATE_RUNNING;
 						if(OUTPUT_STATE_RUNNING == context->outputs[i].state){
 							if(lengthToFlush != write(context->outputs[i].fd, context->outputBuffer, lengthToFlush)){
-								printf("slot %d add an error, closing fd %d" "\n", i, context->outputs[i].fd);
+								printf("slot %d had an error, closing fd %d" "\n", i, context->outputs[i].fd);
 								context->outputs[i].state = OUTPUT_STATE_IDLE;
 								close(context->outputs[i].fd);
 								context->outputs[i].fd  = -1;
@@ -180,7 +181,7 @@ int main(int argc, const char *argv[]){
 						close(fd);
 						context.outputs[i].fd = -1;
 						context.outputs[i].state = OUTPUT_STATE_IDLE;
-						printf("slot %d add an error, closing fd %d" "\n", i, fd);
+						printf("slot %d had an error, closing fd %d" "\n", i, fd);
 					}
 				}
 				// Check listening socket for incoming connection
