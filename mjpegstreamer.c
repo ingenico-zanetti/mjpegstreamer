@@ -55,6 +55,8 @@ typedef enum {
 typedef struct {
 	int fd;
 	OutputState_e state;
+	int decimate;
+	int counter;
 } Output_s;
 
 typedef struct {
@@ -70,6 +72,8 @@ static void contextInitialize(parserContext_s *context){
 	while(i--){
 		context->outputs[i].fd = -1;
 		context->outputs[i].state = OUTPUT_STATE_IDLE;
+		context->outputs[i].decimate = 0;
+		context->outputs[i].counter = 0;
 	}
 	context->outputBuffer = (uint8_t *)malloc(BUFFER_SIZE);
 	context->outputBufferIndex = 0;
@@ -119,8 +123,20 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 				int i = MAX_OUTPUTS;
 				while(i--){
 					if(context->outputs[i].fd != -1){
+						int doOutput = 0;
 						context->outputs[i].state = OUTPUT_STATE_RUNNING;
-						if(OUTPUT_STATE_RUNNING == context->outputs[i].state){
+						if(context->outputs[i].decimate){
+							// printf("decimate[%i] != 0" "\n", i);
+							// printf("counter[%i] = %i" "\n", i, context->outputs[i].counter);
+							if(0 == --context->outputs[i].counter){
+								context->outputs[i].counter = context->outputs[i].decimate;
+								doOutput = 1;
+							}
+						}else{
+							doOutput = 1;
+						}
+						// printf("doOuput=%i" "\n", doOutput);
+						if(doOutput){
 							if(lengthToFlush != write(context->outputs[i].fd, context->outputBuffer, lengthToFlush)){
 								printf("slot %d had an error, closing fd %d" "\n", i, context->outputs[i].fd);
 								context->outputs[i].state = OUTPUT_STATE_IDLE;
