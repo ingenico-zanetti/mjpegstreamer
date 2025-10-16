@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/select.h>
@@ -103,7 +104,7 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 		}else if((2 == context->index) && (0xFF == octet)){
 			context->index++;
 		}else if((3 == context->index) && (0xE0 == octet)){
-			// printf("0xFFD8FFE0" "\n", octet);
+			// fprintf(stderr, "0xFFD8FFE0" "\n", octet);
 			context->index = 0;
 			doFlush = 1;
 		}else{
@@ -113,7 +114,7 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 			context->outputBuffer[context->outputBufferIndex++] = octet;
 		}else{
 			// the 'picture' doesn't fit into our buffer
-			printf("discard buffer (index=%d)" "\n", context->outputBufferIndex = 0); 
+			fprintf(stderr, "discard buffer (index=%d)" "\n", context->outputBufferIndex = 0); 
 			context->outputBufferIndex = 0;
 			context->index = 0;
 		}
@@ -126,8 +127,6 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 						int doOutput = 0;
 						context->outputs[i].state = OUTPUT_STATE_RUNNING;
 						if(context->outputs[i].decimate){
-							// printf("decimate[%i] != 0" "\n", i);
-							// printf("counter[%i] = %i" "\n", i, context->outputs[i].counter);
 							if(0 == --context->outputs[i].counter){
 								context->outputs[i].counter = context->outputs[i].decimate;
 								doOutput = 1;
@@ -135,10 +134,9 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 						}else{
 							doOutput = 1;
 						}
-						// printf("doOuput=%i" "\n", doOutput);
 						if(doOutput){
 							if(lengthToFlush != write(context->outputs[i].fd, context->outputBuffer, lengthToFlush)){
-								printf("slot %d had an error, closing fd %d" "\n", i, context->outputs[i].fd);
+								fprintf(stderr, "slot %d had an error, closing fd %d" "\n", i, context->outputs[i].fd);
 								context->outputs[i].state = OUTPUT_STATE_IDLE;
 								close(context->outputs[i].fd);
 								context->outputs[i].fd  = -1;
@@ -148,23 +146,74 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 				}
 				// Move current "tag" to start of buffer
 				// by moving nothing
-				// printf("flushed %d, reset index to 4" "\n", lengthToFlush);
+				// fprintf(stderr, "flushed %d, reset index to 4" "\n", lengthToFlush);
 				context->outputBufferIndex = 4;
 			}else{
-				// printf("nothing to flush" "\n");
+				// fprintf(stderr, "nothing to flush" "\n");
 			}
 		}
 	}
 }
 
+#define MAX_LISTENING_SOCKETS (16)
+
+int startsWith(const char *start, const char *with){
+	return(start == strstr(start, with));
+}
+	
 int main(int argc, const char *argv[]){
+	if(argc < 2){
+		fprintf(stderr,
+				"Usage: %s <port definition> [<port definition> [ .... ]]" "\n"
+				"with <port definition> either a TCP port number or stdout," 
+			        "optionally followed by a ':' and an integer decimation factor" "\n",
+				argv[0]);
+		exit(1);
+	}
 	int in  = STDIN_FILENO;
 	uint8_t *buffer = (uint8_t *)malloc(BUFFER_SIZE);
 	if(buffer != NULL){
-		struct in_addr listenAddress = {0}; // bind to this address for score connections
-		int listeningSocket = listenSocket(&listenAddress, htons(56789));
 		parserContext_s context;
 		contextInitialize(&context);
+		int listeningSockets[MAX_LISTENING_SOCKETS];
+		int socketDecimation[MAX_LISTENING_SOCKETS];
+		int listeningSocketCount = 0;
+		for(int i = 0 ; i < MAX_LISTENING_SOCKETS ; i++){
+			listeningSockets[i] = -1;
+			socketDecimation[i] = 0;
+		}
+		struct in_addr listenAddress = {0};
+		for(int i = 1 ; i < MAX_LISTENING_SOCKETS ; i++){
+			if(i < argc){
+				int decimation = 0;
+				if(startsWith(argv[i], "stdout")){
+					const char *colon = strchr(argv[i], ':');
+					if(colon){
+						decimation = atoi(colon + 1);
+					} 
+					int index  = contextFirstSlotAvailable(&context);
+					if(index != -1){
+						context.outputs[index].state = OUTPUT_STATE_IDLE;
+						context.outputs[index].fd = STDOUT_FILENO;
+						context.outputs[index].decimate = decimation;
+						context.outputs[index].counter = decimation;
+						fprintf(stderr, "Ouputting to stdout with decimation %i" "\n", decimation);
+					}
+				}else{
+					int tcpPort = atoi(argv[i]);
+					if((0 < tcpPort) && (tcpPort < 65535)){
+						const char *colon = strchr(argv[i], ':');
+						if(colon){
+							decimation = atoi(colon + 1);
+						} 
+						listeningSockets[i] = listenSocket(&listenAddress, htons(tcpPort));
+						socketDecimation[i] = decimation;
+						fprintf(stderr, "Listening to TCP port %i, with decimation %i" "\n",tcpPort, decimation);
+					}
+				}
+			}
+		}
+						
 		for(;;){
 			void updateMax(int *m, int n){
 				int max = *m;
@@ -176,8 +225,11 @@ int main(int argc, const char *argv[]){
 			fd_set fds;
 			FD_ZERO(&fds);
 			FD_SET(STDIN_FILENO, &fds); updateMax(&max, STDIN_FILENO);
-			if(-1 != listeningSocket && (0 <= contextFirstSlotAvailable(&context))){
-				FD_SET(listeningSocket, &fds); updateMax(&max, listeningSocket);
+			for(int i = 0 ; i < MAX_LISTENING_SOCKETS ; i++){
+				int listeningSocket = listeningSockets[i];
+				if(-1 != listeningSocket && (0 <= contextFirstSlotAvailable(&context))){
+					FD_SET(listeningSocket, &fds); updateMax(&max, listeningSocket);
+				}
 			}
 			int i = MAX_OUTPUTS;
 			while(i--){
@@ -197,18 +249,25 @@ int main(int argc, const char *argv[]){
 						close(fd);
 						context.outputs[i].fd = -1;
 						context.outputs[i].state = OUTPUT_STATE_IDLE;
-						printf("slot %d had an error, closing fd %d" "\n", i, fd);
+						fprintf(stderr, "slot %d had an error, closing fd %d" "\n", i, fd);
 					}
 				}
-				// Check listening socket for incoming connection
-				if(FD_ISSET(listeningSocket, &fds)){
-					int index  = contextFirstSlotAvailable(&context);
-					context.outputs[index].state = OUTPUT_STATE_IDLE;
-					context.outputs[index].fd = accept(listeningSocket, NULL, NULL);
-					printf("accepted connexion to slot %d (fd=%d)" "\n", index, context.outputs[index].fd);
+				// Check listening sockets for incoming connection
+				for(int i = 0 ; i < MAX_LISTENING_SOCKETS ; i++){
+					int listeningSocket = listeningSockets[i];
+					if(-1 != listeningSocket && FD_ISSET(listeningSocket, &fds)){
+						int index = contextFirstSlotAvailable(&context);
+						if(-1 != index){
+							context.outputs[index].state = OUTPUT_STATE_IDLE;
+							context.outputs[index].fd = accept(listeningSocket, NULL, NULL);
+							context.outputs[index].decimate = socketDecimation[i];
+							context.outputs[index].counter = socketDecimation[i];
+							fprintf(stderr, "accepted connexion to slot %d (fd=%d), decimation=%i" "\n", index, context.outputs[index].fd, context.outputs[index].decimate);
+						}
+					}
 				}
 				if(FD_ISSET(STDIN_FILENO, &fds)){
-					// printf("data available on stdin" "\n");
+					// fprintf(stderr, "data available on stdin" "\n");
 					ssize_t lus = read(in, buffer, BUFFER_SIZE);
 					if(lus <= 0){
 						break;
