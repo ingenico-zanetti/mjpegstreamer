@@ -249,31 +249,36 @@ int main(int argc, const char *argv[]){
 						}
 					}else{
 						// argv[i] is the basename for a MJPEG file and its associated index file
-						const char *colon = strrchr(argv[i], ':');
-						if(colon){
-							decimation = atoi(colon + 1);
-						} 
-						int index  = contextFirstSlotAvailable(&context);
-						if(index != -1){
-							context.outputs[index].state = OUTPUT_STATE_IDLE;
-							context.outputs[index].fd = -2;
-							context.outputs[index].decimate = decimation;
-							context.outputs[index].counter = decimation;
-							snprintf(buffer, BUFFER_SIZE - 1, "%s.MJPEG", argv[i]);
-							int fd = open(buffer, O_RDWR, 0);
-							if(-1 != fd){
-								context.outputs[index].mjpegFile = fd;
-								snprintf(buffer, BUFFER_SIZE - 1, "%s.INDEX", argv[i]);
-								fd = open(buffer, O_RDWR, 0);
+						// Beware : empty filename means no output to file
+						if('\0' == argv[i][0]){
+							fprintf(stderr, "Empty MPJEG/INDEX filename, skipping" "\n");
+						}else{
+							const char *colon = strrchr(argv[i], ':');
+							if(colon){
+								decimation = atoi(colon + 1);
+							} 
+							int index  = contextFirstSlotAvailable(&context);
+							if(index != -1){
+								context.outputs[index].state = OUTPUT_STATE_IDLE;
+								context.outputs[index].fd = -2;
+								context.outputs[index].decimate = decimation;
+								context.outputs[index].counter = decimation;
+								snprintf(buffer, BUFFER_SIZE - 1, "%s.MJPEG", argv[i]);
+								int fd = open(buffer, O_RDWR|O_CREAT, 0);
 								if(-1 != fd){
-									context.outputs[index].indexFile = fd;
-									fprintf(stderr, "Ouputting to %s.MJPEG/.INDEX with decimation %i" "\n", argv[i], decimation);
+									context.outputs[index].mjpegFile = fd;
+									snprintf(buffer, BUFFER_SIZE - 1, "%s.INDEX", argv[i]);
+									fd = open(buffer, O_RDWR|O_CREAT, 0);
+									if(-1 != fd){
+										context.outputs[index].indexFile = fd;
+										fprintf(stderr, "Ouputting to %s.MJPEG/.INDEX with decimation %i" "\n", argv[i], decimation);
+									}else{
+										perror(buffer);
+									}
 								}else{
 									perror(buffer);
+									context.outputs[index].fd = -1;
 								}
-							}else{
-								perror(buffer);
-								context.outputs[index].fd = -1;
 							}
 						}
 					}
