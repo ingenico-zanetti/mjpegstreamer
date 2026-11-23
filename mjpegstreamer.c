@@ -2,7 +2,6 @@
 // they are parsed to get the JPEG frames
 // and when a TCP connection occurs
 // the TCP client is feed with data starting at a frame beginning
-//
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -58,6 +57,9 @@ typedef struct {
 	OutputState_e state;
 	int decimate;
 	int counter;
+	int mjpegFile;
+	int indexFile;
+	uint64_t index;
 } Output_s;
 
 typedef struct {
@@ -75,6 +77,9 @@ static void contextInitialize(parserContext_s *context){
 		context->outputs[i].state = OUTPUT_STATE_IDLE;
 		context->outputs[i].decimate = 0;
 		context->outputs[i].counter = 0;
+		context->outputs[i].mjpegFile = -1;
+		context->outputs[i].indexFile = -1;
+		context->outputs[i].index = 0ULL;
 	}
 	context->outputBuffer = (uint8_t *)malloc(BUFFER_SIZE);
 	context->outputBufferIndex = 0;
@@ -135,18 +140,48 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 							doOutput = 1;
 						}
 						if(doOutput){
+							if(-2 != context->outputs[i].fd){
 							if(lengthToFlush != write(context->outputs[i].fd, context->outputBuffer, lengthToFlush)){
 								fprintf(stderr, "slot %d had an error, closing fd %d" "\n", i, context->outputs[i].fd);
 								context->outputs[i].state = OUTPUT_STATE_IDLE;
 								close(context->outputs[i].fd);
 								context->outputs[i].fd  = -1;
 							}
+							}else{
+								// MJPEG file and index file
+								int mjpegFile = context->outputs[i].mjpegFile;
+								int indexFile = context->outputs[i].indexFile;
+								if(-1 != mjpegFile){
+									if(lengthToFlush != write(mjpegFile, context->outputBuffer, lengthToFlush)){
+										fprintf(stderr, "slot %d had an error, closing fd %d" "\n", i, mjpegFile);
+										context->outputs[i].state = OUTPUT_STATE_IDLE;
+										close(mjpegFile);
+										close(indexFile);
+										context->outputs[i].mjpegFile = -1;
+										context->outputs[i].indexFile = -1;
+										context->outputs[i].fd  = -1;
+									}
+								}
+								if(-1 != indexFile){
+									int lengthToWrite = sizeof(context->outputs[i].index);
+									if(lengthToWrite != write(indexFile, &(context->outputs[i].index), lengthToWrite)){
+										fprintf(stderr, "slot %d had an error, closing fd %d" "\n", i, mjpegFile);
+										context->outputs[i].state = OUTPUT_STATE_IDLE;
+										close(mjpegFile);
+										close(indexFile);
+										context->outputs[i].mjpegFile = -1;
+										context->outputs[i].indexFile = -1;
+										context->outputs[i].fd  = -1;
+									}
+									context->outputs[i].index += (uint64_t)lengthToFlush;
+								}
+
+							}
 						}
 					}
 				}
 				// Move current "tag" to start of buffer
 				// by moving nothing
-				// fprintf(stderr, "flushed %d, reset index to 4" "\n", lengthToFlush);
 				context->outputBufferIndex = 4;
 			}else{
 				// fprintf(stderr, "nothing to flush" "\n");
@@ -200,15 +235,47 @@ int main(int argc, const char *argv[]){
 						fprintf(stderr, "Ouputting to stdout with decimation %i" "\n", decimation);
 					}
 				}else{
-					int tcpPort = atoi(argv[i]);
-					if((0 < tcpPort) && (tcpPort < 65535)){
-						const char *colon = strchr(argv[i], ':');
+					int tcpPort = -1;
+					int scanned = sscanf(argv[i], "%d", &tcpPort);
+					if(scanned > 0){
+						if((0 < tcpPort) && (tcpPort < 65535)){
+							const char *colon = strchr(argv[i], ':');
+							if(colon){
+								decimation = atoi(colon + 1);
+							} 
+							listeningSockets[i] = listenSocket(&listenAddress, htons(tcpPort));
+							socketDecimation[i] = decimation;
+							fprintf(stderr, "Listening to TCP port %i, with decimation %i" "\n",tcpPort, decimation);
+						}
+					}else{
+						// argv[i] is the basename for a MJPEG file and its associated index file
+						const char *colon = strrchr(argv[i], ':');
 						if(colon){
 							decimation = atoi(colon + 1);
 						} 
-						listeningSockets[i] = listenSocket(&listenAddress, htons(tcpPort));
-						socketDecimation[i] = decimation;
-						fprintf(stderr, "Listening to TCP port %i, with decimation %i" "\n",tcpPort, decimation);
+						int index  = contextFirstSlotAvailable(&context);
+						if(index != -1){
+							context.outputs[index].state = OUTPUT_STATE_IDLE;
+							context.outputs[index].fd = -2;
+							context.outputs[index].decimate = decimation;
+							context.outputs[index].counter = decimation;
+							snprintf(buffer, BUFFER_SIZE - 1, "%s.MJPEG", argv[i]);
+							int fd = open(buffer, O_RDWR, 0);
+							if(-1 != fd){
+								context.outputs[index].mjpegFile = fd;
+								snprintf(buffer, BUFFER_SIZE - 1, "%s.INDEX", argv[i]);
+								fd = open(buffer, O_RDWR, 0);
+								if(-1 != fd){
+									context.outputs[index].indexFile = fd;
+									fprintf(stderr, "Ouputting to %s.MJPEG/.INDEX with decimation %i" "\n", argv[i], decimation);
+								}else{
+									perror(buffer);
+								}
+							}else{
+								perror(buffer);
+								context.outputs[index].fd = -1;
+							}
+						}
 					}
 				}
 			}

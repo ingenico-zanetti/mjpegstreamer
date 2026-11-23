@@ -1,3 +1,5 @@
+All: mjpegstreamer mjpegstreamer2
+
 mjpegstreamer2: mjpegstreamer2.c
 	$(CC) -o mjpegstreamer2 mjpegstreamer2.c
 
