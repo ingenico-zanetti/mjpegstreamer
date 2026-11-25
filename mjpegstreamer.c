@@ -151,6 +151,7 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 								// MJPEG file and index file
 								int mjpegFile = context->outputs[i].mjpegFile;
 								int indexFile = context->outputs[i].indexFile;
+#if 1
 								if(-1 != mjpegFile){
 									if(lengthToFlush != write(mjpegFile, context->outputBuffer, lengthToFlush)){
 										fprintf(stderr, "slot %d had an error, closing fd %d" "\n", i, mjpegFile);
@@ -162,9 +163,13 @@ static void analyze_and_forward(parserContext_s *context, const uint8_t *buffer,
 										context->outputs[i].fd  = -1;
 									}
 								}
+#endif
 								if(-1 != indexFile){
-									int lengthToWrite = sizeof(context->outputs[i].index);
-									if(lengthToWrite != write(indexFile, &(context->outputs[i].index), lengthToWrite)){
+									struct timeval tv;
+									gettimeofday(&tv, NULL);
+									char chaine[64];
+									int lengthToWrite = snprintf(chaine, sizeof(chaine), "% 20llu,% 20llu,% 20llu" "\n", context->outputs[i].index, tv.tv_sec, tv.tv_usec);
+									if(lengthToWrite != write(indexFile, chaine, lengthToWrite)){
 										fprintf(stderr, "slot %d had an error, closing fd %d" "\n", i, mjpegFile);
 										context->outputs[i].state = OUTPUT_STATE_IDLE;
 										close(mjpegFile);
