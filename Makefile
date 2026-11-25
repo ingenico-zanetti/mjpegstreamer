@@ -1,4 +1,4 @@
-All: mjpegstreamer mjpegstreamer2 mjpegstreamer3
+all: mjpegstreamer mjpegstreamer2 mjpegstreamer3
 
 mjpegstreamer3: mjpegstreamer3.c
 	$(CC) -o mjpegstreamer3 mjpegstreamer3.c
@@ -9,7 +9,7 @@ mjpegstreamer2: mjpegstreamer2.c
 mjpegstreamer: mjpegstreamer.c
 	$(CC) -o mjpegstreamer mjpegstreamer.c
 
-install: mjpegstreamer mjpegstreamer2
+install: all
 	strip mjpegstreamer
 	cp -vf ./mjpegstreamer ~/bin
 	strip mjpegstreamer2
