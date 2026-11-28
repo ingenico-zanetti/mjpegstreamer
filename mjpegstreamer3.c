@@ -471,10 +471,6 @@ static void *stdout_worker_thread(void *arg) {
             continue;
         }
 
-        uint32_t net_len = htonl((uint32_t)span.len);
-        if (!write_all_plain_fd(STDOUT_FILENO, &net_len, sizeof(net_len))) {
-            break;
-        }
         if (!write_span_plain_fd(STDOUT_FILENO, &span)) {
             break;
         }
@@ -495,8 +491,6 @@ static void *tcp_client_thread(void *arg) {
             continue;
         }
 
-        uint32_t net_len = htonl((uint32_t)span.len);
-        if (!write_all_fd(slot->fd, &net_len, sizeof(net_len))) break;
         if (!send_span_socket(slot->fd, &span)) break;
 
         __atomic_fetch_add(&slot->sent, 1u, __ATOMIC_RELAXED);
